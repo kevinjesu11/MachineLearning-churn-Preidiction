@@ -1,65 +1,94 @@
-from __future__ import annotations
-
-import argparse
 from pathlib import Path
 
 import joblib
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score, classification_report
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import pandas as pd
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import (
+    ConfusionMatrixDisplay,
+    classification_report,
+    confusion_matrix,
+    roc_auc_score,
+    roc_curve,
+)
 from sklearn.model_selection import train_test_split
-from sklearn.pipeline import Pipeline
 
-from data_preprocessing import (
-    TARGET_COLUMN,
-    build_preprocessor,
-    load_data,
-    normalize_target,
-    split_features_target,
+from data_preprocessing import DATA_PATH, load_data, preprocess_data
+
+
+MODEL_PATH = Path("models/churn_model.joblib")
+REPORT_DIR = Path("report")
+REPORT_DIR.mkdir(parents=True, exist_ok=True)
+
+
+df = load_data(DATA_PATH)
+X_encoded, y = preprocess_data(df)
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X_encoded,
+    y,
+    test_size=0.2,
+    random_state=42,
+    stratify=y
 )
 
+lr_balanced = LogisticRegression(
+    max_iter=1000,
+    class_weight='balanced'
+)
 
-DEFAULT_DATA_PATH = Path("data/raw/Telco_customer_churn.xlsx")
-DEFAULT_MODEL_PATH = Path("models/churn_model.joblib")
+lr_balanced.fit(X_train, y_train)
 
+y_pred_balanced = lr_balanced.predict(X_test)
+y_prob_balanced = lr_balanced.predict_proba(X_test)[:, 1]
 
-def train(data_path: Path, model_path: Path, target_column: str = TARGET_COLUMN) -> None:
-    data = load_data(data_path)
-    features, target = split_features_target(data, target_column=target_column)
-    target = normalize_target(target)
+print(classification_report(y_test, y_pred_balanced))
 
-    x_train, x_test, y_train, y_test = train_test_split(
-        features,
-        target,
-        test_size=0.2,
-        random_state=42,
-        stratify=target if target.nunique() > 1 else None,
-    )
+feature_importance = pd.Series(
+    lr_balanced.coef_[0],
+    index=X_encoded.columns,
+).abs().sort_values(ascending=False)
 
-    model = Pipeline(
-        steps=[
-            ("preprocessor", build_preprocessor(features)),
-            ("classifier", RandomForestClassifier(n_estimators=200, random_state=42)),
-        ]
-    )
-    model.fit(x_train, y_train)
+plt.figure(figsize=(10, 6))
+feature_importance.head(20).plot(kind="bar")
+plt.title("Top 20 Feature Importances")
+plt.ylabel("Absolute Coefficient")
+plt.tight_layout()
+plt.savefig(REPORT_DIR / "feature_importance.png", dpi=300)
+plt.close()
 
-    predictions = model.predict(x_test)
-    print(f"Accuracy: {accuracy_score(y_test, predictions):.3f}")
-    print(classification_report(y_test, predictions))
+fpr, tpr, _ = roc_curve(y_test, y_prob_balanced)
+roc_auc = roc_auc_score(y_test, y_prob_balanced)
 
-    model_path.parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(model, model_path)
-    print(f"Saved model to {model_path}")
+plt.figure(figsize=(7, 7))
+plt.plot(fpr, tpr, label=f"ROC Curve (AUC = {roc_auc:.2f})")
+plt.plot([0, 1], [0, 1], linestyle="--", color="gray")
+plt.xlabel("False Positive Rate")
+plt.ylabel("True Positive Rate")
+plt.title("ROC Curve")
+plt.legend()
+plt.tight_layout()
+plt.savefig(REPORT_DIR / "roc_curve.png", dpi=300)
+plt.close()
 
+cm = confusion_matrix(y_test, y_pred_balanced)
+disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=["No Churn", "Churn"])
+fig, ax = plt.subplots(figsize=(6, 6))
+disp.plot(ax=ax, cmap="Blues")
+ax.set_title("Confusion Matrix")
+plt.tight_layout()
+plt.savefig(REPORT_DIR / "confusion_matrix.png", dpi=300)
+plt.close(fig)
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train a customer churn model.")
-    parser.add_argument("--data", type=Path, default=DEFAULT_DATA_PATH)
-    parser.add_argument("--model", type=Path, default=DEFAULT_MODEL_PATH)
-    parser.add_argument("--target", default=TARGET_COLUMN)
-    return parser.parse_args()
-
-
-if __name__ == "__main__":
-    args = parse_args()
-    train(args.data, args.model, args.target)
+MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+joblib.dump(
+    {
+        "model": lr_balanced,
+        "feature_columns": X_encoded.columns.tolist(),
+    },
+    MODEL_PATH
+)
+print(f"Saved model to {MODEL_PATH}")
+print(f"Saved plots to {REPORT_DIR}")

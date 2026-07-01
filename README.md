@@ -1,44 +1,61 @@
 # Customer Churn Prediction
 
-Machine learning project for training and serving a customer churn prediction model.
+End-to-end customer churn prediction project built from the workflow in `notebooks/churn_eda.ipynb`.
+
+The notebook explores the Telco churn dataset, cleans the data, compares models, and finally uses balanced Logistic Regression.
 
 ## Project Structure
 
 ```text
 data/
-  raw/              # Original datasets
-  processed/        # Cleaned data and prediction outputs
-notebooks/          # Exploratory analysis
-src/                # Training and prediction code
-models/             # Saved model artifacts
-app/                # Streamlit app
+  raw/
+    Telco_customer_churn.xlsx
+  processed/
+notebooks/
+  churn_eda.ipynb
+src/
+  data_preprocessing.py
+  train.py
+  predict.py
+models/
+app/
+  streamlit_app.py
+requirements.txt
+README.md
+.gitignore
 ```
 
 ## Setup
 
 ```bash
-python -m venv .venv
-.venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
 ## Train
 
-Place your training file at `data/raw/Telco_customer_churn.xlsx`. The default target column is `Churn Value`.
-
 ```bash
-python src/train.py --data data/raw/Telco_customer_churn.xlsx
+python src/train.py
+```
+
+This trains the final Logistic Regression model from the notebook and saves it to:
+
+```text
+models/churn_model.joblib
 ```
 
 ## Predict
 
 ```bash
-python src/predict.py --input data/raw/new_customers.csv
+python src/predict.py
 ```
 
-Predictions are saved to `data/processed/predictions.csv`.
+Predictions are saved to:
 
-## App
+```text
+data/processed/predictions.csv
+```
+
+## Streamlit App
 
 ```bash
 streamlit run app/streamlit_app.py

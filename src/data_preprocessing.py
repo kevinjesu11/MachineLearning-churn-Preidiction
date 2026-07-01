@@ -1,80 +1,76 @@
-from __future__ import annotations
-
 from pathlib import Path
-from typing import Iterable
 
 import pandas as pd
-from sklearn.compose import ColumnTransformer
-from sklearn.impute import SimpleImputer
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 
+DATA_PATH = Path("data/raw/Telco_customer_churn.xlsx")
 TARGET_COLUMN = "Churn Value"
-LEAKAGE_COLUMNS = {"Churn Label", "Churn Value", "Churn Score", "Churn Reason"}
 
 
-def load_data(path: str | Path) -> pd.DataFrame:
-    """Load a tabular dataset from disk."""
-    path = Path(path)
-    if path.suffix.lower() in {".xlsx", ".xls"}:
-        data = pd.read_excel(path)
-    else:
-        data = pd.read_csv(path)
-
-    if "Total Charges" in data.columns:
-        data["Total Charges"] = pd.to_numeric(data["Total Charges"], errors="coerce")
-
-    return data
+def load_data(data_path=DATA_PATH):
+    df = pd.read_excel(data_path)
+    return df
 
 
-def split_features_target(
-    data: pd.DataFrame,
-    target_column: str = TARGET_COLUMN,
-) -> tuple[pd.DataFrame, pd.Series]:
-    """Split a churn dataframe into features and target."""
-    if target_column not in data.columns:
-        raise ValueError(f"Target column '{target_column}' was not found.")
+def preprocess_data(df):
+    df = df.copy()
 
-    excluded_columns = [
-        column for column in LEAKAGE_COLUMNS | {target_column} if column in data.columns
+    df.drop(['Churn Reason'], axis=1, inplace=True)
+    df.drop(['Count'], axis=1, inplace=True)
+    df.drop(['CustomerID'], axis=1, inplace=True)
+    df.drop("Churn Label", axis=1, inplace=True)
+    df.drop("Churn Score", axis=1, inplace=True)
+    df.drop("Country", axis=1, inplace=True)
+    df.drop("State", axis=1, inplace=True)
+    df.drop("City", axis=1, inplace=True)
+    df.drop("Lat Long", axis=1, inplace=True)
+    df.drop("Zip Code", axis=1, inplace=True)
+
+    df["Total Charges"] = pd.to_numeric(
+        df["Total Charges"],
+        errors="coerce"
+    )
+    df["Total Charges"] = df["Total Charges"].fillna(0)
+
+    X = df.drop("Churn Value", axis=1)
+    y = df["Churn Value"]
+
+    X_encoded = pd.get_dummies(X, drop_first=True)
+    X_encoded = X_encoded.astype(int)
+
+    return X_encoded, y
+
+
+def preprocess_input(df, feature_columns):
+    df = df.copy()
+
+    columns_to_drop = [
+        'Churn Reason',
+        'Count',
+        'CustomerID',
+        "Churn Label",
+        "Churn Score",
+        "Churn Value",
+        "Country",
+        "State",
+        "City",
+        "Lat Long",
+        "Zip Code",
     ]
-    features = data.drop(columns=excluded_columns)
-    target = data[target_column]
-    return features, target
 
+    for column in columns_to_drop:
+        if column in df.columns:
+            df.drop(column, axis=1, inplace=True)
 
-def build_preprocessor(features: pd.DataFrame) -> ColumnTransformer:
-    """Create preprocessing steps for numeric and categorical columns."""
-    numeric_features = features.select_dtypes(include=["number", "bool"]).columns
-    categorical_features = features.select_dtypes(exclude=["number", "bool"]).columns
+    if "Total Charges" in df.columns:
+        df["Total Charges"] = pd.to_numeric(
+            df["Total Charges"],
+            errors="coerce"
+        )
+        df["Total Charges"] = df["Total Charges"].fillna(0)
 
-    numeric_pipeline = Pipeline(
-        steps=[
-            ("imputer", SimpleImputer(strategy="median")),
-            ("scaler", StandardScaler()),
-        ]
-    )
+    X_encoded = pd.get_dummies(df, drop_first=True)
+    X_encoded = X_encoded.reindex(columns=feature_columns, fill_value=0)
+    X_encoded = X_encoded.astype(int)
 
-    categorical_pipeline = Pipeline(
-        steps=[
-            ("imputer", SimpleImputer(strategy="most_frequent")),
-            ("encoder", OneHotEncoder(handle_unknown="ignore")),
-        ]
-    )
-
-    return ColumnTransformer(
-        transformers=[
-            ("numeric", numeric_pipeline, list(numeric_features)),
-            ("categorical", categorical_pipeline, list(categorical_features)),
-        ]
-    )
-
-
-def normalize_target(target: pd.Series, positive_values: Iterable[str] = ("yes", "true", "1")) -> pd.Series:
-    """Convert common churn labels into 0/1 values."""
-    if pd.api.types.is_numeric_dtype(target):
-        return target.astype(int)
-
-    positive = {value.lower() for value in positive_values}
-    return target.astype(str).str.strip().str.lower().isin(positive).astype(int)
+    return X_encoded

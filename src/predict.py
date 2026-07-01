@@ -1,40 +1,33 @@
-from __future__ import annotations
-
-import argparse
 from pathlib import Path
 
 import joblib
 import pandas as pd
 
-
-DEFAULT_MODEL_PATH = Path("models/churn_model.joblib")
-
-
-def predict(input_path: Path, model_path: Path = DEFAULT_MODEL_PATH) -> pd.DataFrame:
-    model = joblib.load(model_path)
-    data = pd.read_csv(input_path)
-
-    predictions = model.predict(data)
-    results = data.copy()
-    results["churn_prediction"] = predictions
-
-    if hasattr(model, "predict_proba"):
-        results["churn_probability"] = model.predict_proba(data)[:, 1]
-
-    return results
+from data_preprocessing import preprocess_input
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Predict customer churn from a CSV file.")
-    parser.add_argument("--input", type=Path, required=True)
-    parser.add_argument("--model", type=Path, default=DEFAULT_MODEL_PATH)
-    parser.add_argument("--output", type=Path, default=Path("data/processed/predictions.csv"))
-    return parser.parse_args()
+MODEL_PATH = Path("models/churn_model.joblib")
+INPUT_PATH = Path("data/raw/Telco_customer_churn.xlsx")
+OUTPUT_PATH = Path("data/processed/predictions.csv")
 
 
-if __name__ == "__main__":
-    args = parse_args()
-    predictions = predict(args.input, args.model)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    predictions.to_csv(args.output, index=False)
-    print(f"Saved predictions to {args.output}")
+saved_model = joblib.load(MODEL_PATH)
+model = saved_model["model"]
+feature_columns = saved_model["feature_columns"]
+
+df = pd.read_excel(INPUT_PATH)
+X_encoded = preprocess_input(df, feature_columns)
+
+y_pred = model.predict(X_encoded)
+
+results = df.copy()
+results["Predicted Churn Value"] = y_pred
+
+if hasattr(model, "predict_proba"):
+    results["Predicted Churn Probability"] = model.predict_proba(X_encoded)[:, 1]
+
+OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+results.to_csv(OUTPUT_PATH, index=False)
+
+print(results[["Predicted Churn Value"]].head())
+print(f"Saved predictions to {OUTPUT_PATH}")
